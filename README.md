@@ -87,6 +87,15 @@ hackathon as the entry itself: an embodied agent that recursively evolves
 its own harness from experience, with MongoDB Atlas as its persistent
 developmental memory.
 
+## Contributors
+
+- RosarioM123 - recursive harness design and implementation (sim, evolver,
+  skills, evaluation, demo, docs)
+- shravanthi-m - author of the original CookMemory starter
+  ([shravanthi-m/MongoHack](https://github.com/shravanthi-m/MongoHack)) this
+  comparison build starts from. She is the sole contributor on the original
+  repo; the CookMemory evaluation patch here builds on her starter code.
+
 ## Honest claims
 
 Deterministic simulation, not a physical robot. The Atlas backend is
