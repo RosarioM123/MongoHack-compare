@@ -1,93 +1,97 @@
-# CookMemory (comparison build)
+# Recursive Harness: a robot that rewrites itself from experience
 
-A persistent procedural-memory harness evaluated on CaptainCook4D egocentric
-recordings. The goal is to remember unresolved mistakes through a long task
-and improve which evidence an agent checks before advancing.
+A robot starts with a stale map, no collision checking, and no memory. It
+fails. A deterministic evolver diagnoses the failures, proposes bounded
+changes to the robot's own architecture, validates them on held-out seeds,
+and promotes only what the numbers justify. Three generations later the
+robot routes around obstacles it cannot see and remembers what it learned.
+MongoDB is its developmental memory: every experience, failure, lesson,
+skill, mutation, and architecture version persists there, and every reported
+number traces back to a stored record.
 
-This repo is a **comparison build**: it starts from the
-[shravanthi-m/MongoHack](https://github.com/shravanthi-m/MongoHack) starter
-(public, built during the MongoDB Harness Engineering & Model Wrangling
-Hackathon on 2026-09-26) and applies an improvement patch on top, so the two
-can be compared side by side. Original starter code is credited to its author;
-the additions below were built for this comparison.
+## The demo story
 
-## What the patch adds
+```
+v0: 2/4 success, avg 90.8 steps   -> repeated verification_error
+v1: 4/4 success, avg 34.5 steps   -> ADD_VERIFIER +collision_check (validated)
+v2: 4/4 success, avg 33.0 steps   -> ADD_MODULE +spatial_memory (validated)
+then: stable. No patterns, no changes. The harness only mutates on evidence.
+```
 
-- `cookmemory/evaluate.py` + `cookmemory compare`: evaluator-only scoring
-  (caught/missed/false alarms/issue survival) and a memory-vs-stateless table.
-- `cookmemory/policy.py` + `propose-policy` / `validate-policy`: a bounded
-  recursive-harnessing loop. One rule template (`strict_order`) is proposed
-  from measured dev errors, validated against held-out recordings, and
-  promoted versioned. The harness only changes its own verification rule when
-  the numbers justify it.
-- `cookmemory/render.py` + `render-ui`: a self-contained replay page
-  (`demo.html`) with a memory/stateless toggle. No external assets.
-- `cookmemory/verify_atlas.py`: guided Atlas Sandbox restart-recovery demo
-  with a PASS/FAIL verdict.
-- `replay` gains `--decisions-out` and `--policy`.
+Frozen v2 then solves `maze-deliver`, a maze it never trained on, 3/3,
+using the skills it learned: collision replans and persistent spatial memory.
 
-## Quick start
+## Run it
 
-Python 3.10+. Local mode needs no dependencies or API keys.
+Python 3.10+. No dependencies for local mode (SQLite). For Atlas:
 
 ```bash
-# Memory vs stateless comparison table
-python3 -m cookmemory.cli compare \
-  --events examples/observations.jsonl \
-  --labels examples/synthetic-labels.jsonl \
-  --decisions-out work/decisions
+pip install pymongo          # only if you want the Atlas backend
+export MONGODB_URI='...'     # hackathon Sandbox URI
+export MONGODB_DATABASE=cookmemory
+```
 
-# Replay UI
-python3 -m cookmemory.cli render-ui \
-  --events examples/observations.jsonl \
-  --memory work/decisions/memory.jsonl \
-  --stateless work/decisions/stateless.jsonl \
-  --out demo.html
-# open demo.html in a browser
+```bash
+# The three-minute narrated demo (deterministic, fresh database)
+python3 demo.py
+
+# The raw evolution loop
+python3 -m loop --generations 3 --tasks pick-and-deliver,multi-room-deliver --seeds 7,8
+
+# Reproducible benchmark: 3 independent trials, report saved to evaluations
+python3 -m eval.benchmark --trials 3
+
+# Held-out generalization: frozen best architecture on the unseen maze
+python3 -m eval.generalization --held-out-task maze-deliver --seeds 21,22,23
+
+# Evolution timeline (static HTML, no server)
+python3 -m viz.evolution
+# open evolution.html
 
 # Tests
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests
 ```
 
-## Recursive-harnessing loop
+See `ARCHITECTURE.md` for the loop, the frozen contracts, what each
+collection stores, and what is deliberately not claimed.
 
-```bash
-python3 -m cookmemory.cli compare --events examples/observations-order.jsonl \
-  --labels examples/order-labels.jsonl --tag dev-base --json-out work/metrics
-python3 -m cookmemory.cli propose-policy --order-missed 2 \
-  --requires '{"step-b": ["step-a"]}' --out work/policy-proposed.json
-python3 -m cookmemory.cli compare --events examples/observations-order.jsonl \
-  --labels examples/order-labels.jsonl --policy work/policy-proposed.json \
-  --tag dev-cand --json-out work/metrics
-python3 -m cookmemory.cli compare --events examples/observations.jsonl \
-  --labels examples/synthetic-labels.jsonl --tag ho-base --json-out work/metrics
-python3 -m cookmemory.cli compare --events examples/observations.jsonl \
-  --labels examples/synthetic-labels.jsonl --policy work/policy-proposed.json \
-  --tag ho-cand --json-out work/metrics
-python3 -m cookmemory.cli validate-policy --policy work/policy-proposed.json \
-  --dev-baseline work/metrics/dev-base-memory.json \
-  --dev-candidate work/metrics/dev-cand-memory.json \
-  --heldout-baseline work/metrics/ho-base-memory.json \
-  --heldout-candidate work/metrics/ho-cand-memory.json
-```
+## How it works (short)
 
-## Atlas Sandbox
+- `sim/` — deterministic grid world with a stale-map premise: the planner's
+  map is missing obstacles the true world has. Failures emerge from missing
+  capabilities.
+- `evolver/` — classifier (failed trace -> one of 9 categories), pattern
+  detector, mutation proposer (10 bounded types, registry skills only),
+  validator (parent vs child on fixed seeds), and counterfactual lessons
+  that graduate from proposed to validated when adopted.
+- `skills/` — skill registry with prerequisites, versions, composition into
+  strategies, and real success/failure counts from episodes.
+- `architectures.py` — immutable versioned harness definitions; mutations are
+  data, never generated code.
+- `eval/` — reproducible benchmark and frozen-architecture generalization test.
+- `db.py` — Atlas backend when `MONGODB_URI` is set, SQLite otherwise.
+  Same collections, same code path.
 
-```bash
-python -m pip install -e '.[atlas]'
-export MONGODB_URI='...'          # hackathon Sandbox URI
-export MONGODB_DATABASE=cookmemory
-python -m cookmemory.verify_atlas examples/observations.jsonl
-```
+## What was built when
 
-Never commit credentials. `.env.example` documents the variables.
+This repo is a comparison build. The starting point was the
+[shravanthi-m/MongoHack](https://github.com/shravanthi-m/MongoHack) CookMemory
+starter (public, built during the MongoDB Harness Engineering & Model
+Wrangling Hackathon on 2026-09-26); the CookMemory evaluation patch
+(`cookmemory/`, committed earlier) is credited work on top of that starter.
+
+The recursive harness (`sim/`, `evolver/`, `skills/`, `architectures.py`,
+`contracts.py`, `db.py`, `loop.py`, `eval/`, `viz/`, `demo.py`,
+`ARCHITECTURE.md`, and the Prompt 1-3 test suites) was built during the
+hackathon as the entry itself: an embodied agent that recursively evolves
+its own harness from experience, with MongoDB Atlas as its persistent
+developmental memory.
 
 ## Honest claims
 
-The bundled fixtures are synthetic and hand-authored for demo purposes; the
-replay UI says so on the page. There is no video model, trained error
-detector, or real-data benchmark result here. What is real: the memory
-plumbing, the evaluator, the policy loop mechanics, and the Atlas checkpoint
-code. CaptainCook4D recordings/annotations are external research inputs; cite
-Peddi et al., *CaptainCook4D: A Dataset for Understanding Errors in Procedural
-Activities*, NeurIPS 2024.
+Deterministic simulation, not a physical robot. The Atlas backend is
+implemented but the live Sandbox connection still needs testing. The
+classifier's three perception-adjacent categories are reserved (documented,
+not faked) because the sim localizes perfectly by design. Lesson confidence
+is qualitative. No LLM is in the loop; the mechanism is deterministic rules
+over traces, which is what makes it auditable.

@@ -219,6 +219,23 @@ def summarize(traces: List[Dict]) -> Dict:
     }
 
 
+def _mutation_summary(mutation: Optional[Dict]) -> Optional[Dict]:
+    if mutation is None:
+        return None
+    v = mutation.get("validation", {})
+    return {
+        "mutation_id": mutation["mutation_id"],
+        "accepted": mutation["accepted"],
+        "mutation_type": mutation["mutation_type"],
+        "new_component": mutation.get("new_component"),
+        "resulting_version": mutation.get("resulting_version"),
+        "lessons_validated": mutation.get("lessons_validated", 0),
+        "validation_passed": v.get("passed"),
+        "validation_parent": v.get("parent"),
+        "validation_child": v.get("child"),
+    }
+
+
 def run_generations(db, task_ids: List[str], seeds: List[int],
                     n_generations: int) -> List[Dict]:
     ensure_seed_skills(db)
@@ -237,13 +254,20 @@ def run_generations(db, task_ids: List[str], seeds: List[int],
                 traces.append(trace)
         all_traces.extend(traces)
         summary = summarize(traces)
-        summary.update({"generation": g, "version": arch["version_id"]})
+        summary.update({
+            "generation": g,
+            "version": arch["version_id"],
+            "trace_ids": [t["trace_id"] for t in traces],
+            "collisions": sum(t["metrics"].get("bumps", 0) for t in traces),
+            "replans": sum(t["metrics"].get("replans", 0) for t in traces),
+        })
         db.save("evaluations", summary)
+        arch, mutation = maybe_evolve(db, arch, traces)
+        summary["mutation"] = _mutation_summary(mutation)
         history.append(summary)
-        print(f"[gen {g}] {arch['version_id']}: "
+        print(f"[gen {g}] {summary['version']}: "
               f"{summary['successes']}/{summary['episodes']} success, "
               f"avg_steps={summary['avg_steps']}")
-        arch, mutation = maybe_evolve(db, arch, traces)
         if mutation is None:
             print(f"[gen {g}] no patterns found; architecture unchanged.")
         elif mutation["accepted"]:

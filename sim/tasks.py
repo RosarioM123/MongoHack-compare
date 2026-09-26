@@ -68,3 +68,26 @@ def get_task(task_id: str) -> TaskSpec:
 
 def list_tasks() -> list:
     return sorted(TASKS)
+
+# ---------------------------------------------------------------------- #
+# Task C (HELD-OUT): maze-deliver. Never used to trigger a mutation; it is
+# the generalization test. A winding maze layout unlike either training
+# task, with denser unknown obstacles (4 vs 1-2). The frozen best
+# architecture must solve it using only previously learned skills.
+_register(TaskSpec(
+    task_id="maze-deliver",
+    environment_id="env-maze",
+    width=9,
+    height=9,
+    interior_walls={(3, y) for y in range(1, 7)} | {(5, y) for y in range(4, 8)},
+    unknown_obstacles={(2, 2), (2, 4), (2, 6), (5, 3)},
+    objects={
+        "box-1": {"pos": (6, 6), "kind": "box"},
+        "crate-1": {"pos": (7, 2), "kind": "crate"},
+        "crate-2": {"pos": (4, 7), "kind": "crate"},
+    },
+    drop_zones={"zone-a": (1, 6)},
+    target_kind="box",
+    start_candidates=[((1, 1), 1), ((2, 1), 1), ((1, 2), 2)],
+    max_steps=300,
+))
