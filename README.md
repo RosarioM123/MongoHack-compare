@@ -93,8 +93,11 @@ developmental memory.
   skills, evaluation, demo, docs)
 - shravanthi-m - author of the original CookMemory starter
   ([shravanthi-m/MongoHack](https://github.com/shravanthi-m/MongoHack)) this
-  comparison build starts from. She is the sole contributor on the original
-  repo; the CookMemory evaluation patch here builds on her starter code.
+  comparison build starts from
+- Varun Sahni ([varunsahni18](https://github.com/varunsahni18)) - original
+  CookMemory starter team
+- basith-md ([basith-md](https://github.com/basith-md)) - original CookMemory
+  starter team
 
 ## Honest claims
 
