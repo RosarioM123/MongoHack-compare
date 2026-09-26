@@ -1,0 +1,2 @@
+{"event_id": "ord-1", "recording_id": "synthetic-order", "timestamp": 10, "observation": "Step B executed before Step A; no prerequisite evidence recorded.", "completed_steps": ["step-b"]}
+{"event_id": "ord-2", "recording_id": "synthetic-order", "timestamp": 20, "observation": "Step A executed late; the order violation stands.", "completed_steps": ["step-a"]}
