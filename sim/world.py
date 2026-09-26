@@ -126,6 +126,8 @@ class World:
                         event["picked"] = oid
                         event["picked_kind"] = o["kind"]
                         break
+                else:
+                    event["failed_pick"] = True
         elif action == "drop":
             if self.carrying is not None and self.robot_pos in self.drop_zones.values():
                 oid = self.carrying

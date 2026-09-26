@@ -66,17 +66,38 @@ def apply_mutation(parent: Dict, mutation: Dict) -> Dict:
     comp = mutation.get("new_component")
     changes = mutation.get("changes", {}) or {}
 
+    # A named strategy expands to its underlying registry skills, each routed
+    # to its natural architecture list. A single skill goes to the list named
+    # by the mutation type.
+    from skills import STRATEGIES, expand_component  # lazy: skills must not import this module
+    is_strategy = comp in STRATEGIES if comp else False
+    expanded = expand_component(comp) if comp else None
+
     if mtype == "ADD_VERIFIER":
-        if comp and comp not in child["verification_strategy"]:
-            child["verification_strategy"].append(comp)
+        targets = expanded["verifiers"] if is_strategy else ([comp] if comp else [])
+        for name in targets:
+            if name and name not in child["verification_strategy"]:
+                child["verification_strategy"].append(name)
     elif mtype == "ADD_MODULE":
-        if comp and comp not in child["active_modules"]:
+        if is_strategy:
+            for name in expanded["verifiers"]:
+                if name not in child["verification_strategy"]:
+                    child["verification_strategy"].append(name)
+            for name in expanded["modules"]:
+                if name not in child["active_modules"]:
+                    child["active_modules"].append(name)
+            for name in expanded["tools"]:
+                if name not in child["tools"]:
+                    child["tools"].append(name)
+        elif comp and comp not in child["active_modules"]:
             child["active_modules"].append(comp)
     elif mtype == "REMOVE_MODULE":
         child["active_modules"] = [m for m in child["active_modules"] if m != comp]
     elif mtype == "ADD_TOOL":
-        if comp and comp not in child["tools"]:
-            child["tools"].append(comp)
+        targets = expanded["tools"] if is_strategy else ([comp] if comp else [])
+        for name in targets:
+            if name and name not in child["tools"]:
+                child["tools"].append(name)
     elif mtype == "REMOVE_TOOL":
         child["tools"] = [t for t in child["tools"] if t != comp]
     elif mtype == "MODIFY_POLICY":

@@ -1,8 +1,8 @@
 """Mutation validator: parent vs child on a validation task set.
 
-Accept only on no-regression plus strict improvement in at least one metric.
-The validator runs episodes through a caller-supplied runner so this module
-never imports the loop (no circular import).
+Accept when the child strictly improves the success rate, or matches it with
+strictly fewer steps. The validator runs episodes through a caller-supplied
+runner so this module never imports the loop (no circular import).
 """
 from __future__ import annotations
 
@@ -47,11 +47,8 @@ def validate(db, parent: Dict, child: Dict,
         results[arch["version_id"]] = _summarize(traces)
 
     p, c = results[parent["version_id"]], results[child["version_id"]]
-    no_regression = (
-        c["success_rate"] >= p["success_rate"] and c["total_steps"] <= p["total_steps"]
+    passed = bool(
+        c["success_rate"] > p["success_rate"]
+        or (c["success_rate"] == p["success_rate"] and c["total_steps"] < p["total_steps"])
     )
-    strict_gain = (
-        c["success_rate"] > p["success_rate"] or c["total_steps"] < p["total_steps"]
-    )
-    passed = bool(no_regression and strict_gain)
     return {"parent": p, "child": c, "passed": passed}

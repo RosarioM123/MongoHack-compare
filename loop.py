@@ -16,8 +16,17 @@ from typing import Dict, List, Optional, Tuple
 import architectures
 import db as db_module
 from contracts import Trace
-from evolver import classify, find_patterns, propose_mutation, validate
+from evolver import (
+    analyze_failure,
+    classify,
+    find_patterns,
+    get_validated_lessons,
+    mark_lessons_validated,
+    propose_mutation,
+    validate,
+)
 from sim import Robot, World, get_task
+from skills import ensure_seed_skills, record_result
 
 
 def utcnow() -> str:
@@ -55,7 +64,8 @@ def save_memory(db, arch: Dict, environment_id: str, memory: Dict) -> None:
 # ---------------------------------------------------------------------- #
 def run_episode(db, arch: Dict, task_id: str, seed: int,
                 memory: Optional[Dict] = None, tag: str = "episode",
-                persist: bool = True) -> Tuple[Dict, Dict]:
+                persist: bool = True,
+                history: Optional[List[Dict]] = None) -> Tuple[Dict, Dict]:
     spec = get_task(task_id)
     world = World(spec, seed)
     if memory is None:
@@ -78,6 +88,9 @@ def run_episode(db, arch: Dict, task_id: str, seed: int,
         "active_modules": list(arch.get("active_modules", [])),
         "verification_strategy": list(arch.get("verification_strategy", [])),
         "context_strategy": arch.get("context_strategy"),
+        # Validated lessons from earlier failures on this task are consulted
+        # before acting.
+        "lessons_consulted": get_validated_lessons(db, task_id) if persist else [],
     }
     max_steps = arch.get("policies", {}).get("max_steps") or spec.max_steps
     trace.metrics["max_steps"] = max_steps
@@ -94,6 +107,8 @@ def run_episode(db, arch: Dict, task_id: str, seed: int,
         event = world.step(action)
         if event["bump"]:
             trace.metrics["bumps"] = trace.metrics.get("bumps", 0) + 1
+        if event.get("failed_pick"):
+            trace.metrics["failed_picks"] = trace.metrics.get("failed_picks", 0) + 1
         if event["picked"]:
             tools.add("pickup")
             if event.get("picked_kind") != spec.target_kind:
@@ -115,7 +130,10 @@ def run_episode(db, arch: Dict, task_id: str, seed: int,
         "final_pos": list(world.robot_pos),
     }
     if not trace.success:
-        trace.failure_category = classify(trace.to_dict(), arch)
+        trace.failure_category = classify(trace.to_dict(), arch, history)
+        lesson = analyze_failure(trace.to_dict(), arch)
+    else:
+        lesson = None
 
     trace_dict = trace.to_dict()
     if persist:
@@ -136,6 +154,18 @@ def run_episode(db, arch: Dict, task_id: str, seed: int,
                 "task_id": task_id,
                 "created_at": trace.created_at,
             })
+        if lesson:
+            db.save("lessons", lesson)
+        # Real skill success metrics from this episode.
+        record_result(db, "navigation", trace.success)
+        if "pickup" in tools:
+            record_result(db, "pickup", trace.success)
+        if "delivery" in tools:
+            record_result(db, "delivery", trace.success)
+        if trace.metrics.get("replans", 0) > 0:
+            record_result(db, "collision_check", trace.success)
+        if "spatial_memory" in arch.get("active_modules", []):
+            record_result(db, "spatial_memory", trace.success)
 
     # Persist cross-episode memory when the module is active.
     if persist and "spatial_memory" in arch.get("active_modules", []):
@@ -149,7 +179,7 @@ def maybe_evolve(db, arch: Dict, recent_traces: List[Dict]) -> Tuple[Dict, Optio
     """Propose, validate, and possibly promote one architecture mutation."""
     patterns = find_patterns(recent_traces)
     for pattern in patterns:
-        mutation = propose_mutation(pattern, arch)
+        mutation = propose_mutation(pattern, arch, traces=recent_traces)
         if mutation is None:
             continue
         child = architectures.apply_mutation(arch, mutation)
@@ -158,6 +188,7 @@ def maybe_evolve(db, arch: Dict, recent_traces: List[Dict]) -> Tuple[Dict, Optio
         if validation["passed"]:
             child = architectures.create_version(db, arch, mutation)
             mutation["accepted"] = True
+            mutation["lessons_validated"] = mark_lessons_validated(db, mutation)
             db.save("mutations", mutation)
             # Stamp the traces that triggered this evolution.
             for t in recent_traces:
@@ -190,15 +221,21 @@ def summarize(traces: List[Dict]) -> Dict:
 
 def run_generations(db, task_ids: List[str], seeds: List[int],
                     n_generations: int) -> List[Dict]:
+    ensure_seed_skills(db)
     arch = architectures.ensure_v0(db)
     print(f"[loop] db={getattr(db, 'backend_name', '?')} start={arch['version_id']}")
     history = []
+    all_traces: List[Dict] = []
     for g in range(n_generations):
         traces = []
         for task_id in task_ids:
             for seed in seeds:
-                trace, _memory = run_episode(db, arch, task_id, seed)
+                trace, _memory = run_episode(
+                    db, arch, task_id, seed,
+                    history=[t for t in all_traces if t["task_id"] == task_id],
+                )
                 traces.append(trace)
+        all_traces.extend(traces)
         summary = summarize(traces)
         summary.update({"generation": g, "version": arch["version_id"]})
         db.save("evaluations", summary)
@@ -214,7 +251,8 @@ def run_generations(db, task_ids: List[str], seeds: List[int],
             print(f"[gen {g}] MUTATION ACCEPTED: {mutation['mutation_type']} "
                   f"+{mutation['new_component']} -> {mutation['resulting_version']} "
                   f"(val parent {v['parent']['success_rate']:.2f}/{v['parent']['total_steps']} "
-                  f"steps vs child {v['child']['success_rate']:.2f}/{v['child']['total_steps']} steps)")
+                  f"steps vs child {v['child']['success_rate']:.2f}/{v['child']['total_steps']} steps, "
+                  f"{mutation.get('lessons_validated', 0)} lesson(s) validated)")
         else:
             print(f"[gen {g}] mutation {mutation['mutation_type']} rejected by validator.")
     return history

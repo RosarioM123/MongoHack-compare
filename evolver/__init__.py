@@ -1,13 +1,28 @@
-"""Architecture Evolver (seed implementation).
+"""Architecture Evolver.
 
-Deterministic rules map failure patterns to bounded mutations. Prompt 2 owns
-growing this: richer classifier, skill composition, counterfactual lessons.
-The interfaces here (classify / find_patterns / propose_mutation / validate)
-are the ones the loop programs against.
+Deterministic rules map failure patterns to bounded mutations; counterfactual
+analysis turns failures into lessons that graduate to validated only when an
+adopted mutation proves them out. The interfaces here (classify /
+find_patterns / propose_mutation / validate / analyze_failure) are the ones
+the loop programs against.
 """
-from evolver.classifier import classify
+from evolver.classifier import RESERVED_RULES, classify
+from evolver.counterfactual import (
+    analyze_failure,
+    get_validated_lessons,
+    mark_lessons_validated,
+)
 from evolver.patterns import find_patterns
 from evolver.proposer import propose_mutation
 from evolver.validator import validate
 
-__all__ = ["classify", "find_patterns", "propose_mutation", "validate"]
+__all__ = [
+    "RESERVED_RULES",
+    "analyze_failure",
+    "classify",
+    "find_patterns",
+    "get_validated_lessons",
+    "mark_lessons_validated",
+    "propose_mutation",
+    "validate",
+]
